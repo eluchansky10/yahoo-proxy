@@ -8,7 +8,6 @@ app.use(express.json());
 
 // Proxy all requests from the GPT Action to the Yahoo API
 app.all('/*', async (req, res) => {
-  // Construct the target Yahoo API URL from the incoming request path and query
   const queryString = new URL(req.url, `http://${req.headers.host}`).search;
   const yahooApiUrl = `https://fantasysports.yahooapis.com/fantasy/v2${req.path}${queryString}&format=json`;
 
@@ -18,22 +17,26 @@ app.all('/*', async (req, res) => {
     const response = await fetch(yahooApiUrl, {
       method: req.method,
       headers: {
-        // Forward the Authorization header (Bearer token) from the GPT
         'Authorization': req.headers.authorization,
         'Content-Type': 'application/json',
       },
-      // Only include a body for relevant methods
       body: (req.method !== 'GET' && req.method !== 'HEAD') ? JSON.stringify(req.body) : null,
     });
     
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error('Yahoo API Error:', data);
-      return res.status(response.status).json(data);
+    // ** START: Error handling fix **
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      // If the response is JSON, parse it and send it back
+      const data = await response.json();
+      res.status(response.status).json(data);
+    } else {
+      // If it's not JSON (like an XML error), send it back as plain text
+      const textData = await response.text();
+      console.error('Received non-JSON response from Yahoo:', textData);
+      res.status(response.status).send(textData);
     }
-    
-    res.json(data);
+    // ** END: Error handling fix **
+
   } catch (error) {
     console.error('API Proxy Error:', error);
     res.status(500).json({ error: 'API Proxy Error' });
